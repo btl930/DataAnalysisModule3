@@ -7,7 +7,8 @@ USE coffeeshop_db;
 -- =========================================================
 
 -- Q1) List all products (show product name and price), sorted by price descending.
-
+select name, price from products
+order by price desc;
 -- Q2) Show all customers who live in the city of 'Lihue'.
 
 -- Q3) Return the first 5 orders by earliest order_datetime (order_id, order_datetime).
