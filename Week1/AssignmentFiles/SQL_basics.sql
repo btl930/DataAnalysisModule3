@@ -25,7 +25,10 @@ select distinct payment_method from orders;
 select name, city, state from stores;
 -- Q7) From orders, show order_id, status, and a computed column total_items
 --     that counts how many items are in each order.
-select order_id, status, count(order_id) as total_items from orders group by order_id;
+select orders.order_id, orders.status, sum(order_items.quantity) as total_items
+from orders
+join order_items on orders.order_id = order_items.order_id
+group by orders.order_id, orders.status;
 -- Q8) Show orders placed on '2025-09-04' (any time that day).
 select order_datetime from orders
 where order_datetime like '2025-09-04%';
