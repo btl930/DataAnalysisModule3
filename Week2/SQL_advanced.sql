@@ -17,7 +17,30 @@ USE coffeeshop_db;
 -- Filter to orders where order_total is greater than the average PAID order_total
 -- for THAT SAME store (correlated subquery).
 -- Sort by store_name, then order_total DESC.
-
+select o.order_id, 
+	concat(c.first_name, ' ', c.last_name) as customer_name, 
+    s.name as store_name, 
+    o.order_datetime, 
+    sum(oi.quantity * p.price) as order_total
+from orders o
+join customers c on o.customer_id = c.customer_id
+join stores s on o.store_id = s.store_id
+join order_items oi on o.order_id = oi.order_id
+join products p on oi.product_id = p.product_id
+where o.status = 'paid'
+group by o.order_id, c.first_name, c.last_name, s.name, o.order_datetime
+having sum(oi.quantity * p.price) > (
+	select avg(order_total)
+    from (
+		select sum(oi2.quantity * p2.price) as order_total
+		from orders o2
+		join order_items oi2 on o2.order_id = oi2.order_id
+		join products p2 on oi2.product_id = p2.product_id
+		where o2.status = 'paid' 
+        and o2.store_id = o.store_id
+        group by o2.order_id) avg_order_total_table
+        )
+	order by store_name, order_total desc;
 -- =========================================================
 -- Q2) CTE: Daily revenue and 3-day rolling average (PAID only)
 -- =========================================================
@@ -51,14 +74,14 @@ order by s.name, r.order_date;
 with total_spend as (
 	select 
 		o.customer_id, 
-		concat(c.first_name, ', ', c.last_name) as customer_name, 
+		concat(c.first_name, ' ', c.last_name) as customer_name, 
 		sum(oi.quantity * p.price) as total_spend
 	from orders o
 	join customers c on o.customer_id = c.customer_id
 	join order_items oi on o.order_id = oi.order_id
 	join products p on oi.product_id = p.product_id
 	where o.status = 'paid'
-	group by o.customer_id, c.last_name, c.first_name 
+	group by o.customer_id, c.first_name, c.last_name
     )
 select *, 
 	dense_rank() over (order by t.total_spend desc) as spend_rank,
@@ -99,7 +122,7 @@ order by store_name;
 -- Return customers who have at least one PAID order in every store in the stores table.
 -- Return: customer_id, customer_name.
 -- Hint: Compare count(distinct store_id) per customer to (select count(*) from stores).
-select o.customer_id, concat(c.first_name, ', ', c.last_name) as customer_name
+select o.customer_id, concat(c.first_name, ' ', c.last_name) as customer_name
 from orders o
 join customers c on o.customer_id = c.customer_id
 where o.status = 'paid'
@@ -116,7 +139,29 @@ having count(distinct o.store_id) = (
 -- Return: customer_name, order_id, order_datetime, prev_order_datetime, minutes_since_prev.
 -- Only show rows where prev_order_datetime is NOT NULL.
 -- Sort by customer_name, order_datetime.
-
+with prev_order_datetime as (
+	select c.customer_id, 
+		concat(c.first_name, ' ', c.last_name) as customer_name, 
+		o.order_id, 
+		o.order_datetime, 
+		lag(o.order_datetime) over (partition by c.customer_id) as prev_order_datetime
+    from customers c
+    join orders o on c.customer_id = o.customer_id
+    where o.status = 'paid'
+    group by c.customer_id, c.last_name, c.first_name, o.order_id, o.order_datetime
+    ),
+minutes_since_prev as (
+	select pov.customer_name, 
+		pov.order_id, 
+		pov.order_datetime, 
+		pov.prev_order_datetime,
+        TIMESTAMPDIFF(MINUTE, prev_order_datetime, order_datetime) AS minutes_since_prev
+    from prev_order_datetime pov
+    where prev_order_datetime is not null
+    )	
+select *
+from minutes_since_prev
+order by customer_name, order_datetime;
 -- =========================================================
 -- Q7) View: Create a reusable order line view for PAID orders
 -- =========================================================
@@ -127,10 +172,10 @@ having count(distinct o.store_id) = (
 --   quantity, unit_price (= products.price),
 --   line_total (= quantity * products.price)
 -- 
-create view v_paid_order_lines as 
+create or replace view v_paid_order_lines as 
 	select
 		o.order_id, o.order_datetime, o.store_id, s.name as store_name,
-        c.customer_id, concat(c.first_name, ', ', c.last_name) as customer_name,
+        c.customer_id, concat(c.first_name, ' ', c.last_name) as customer_name,
         p.product_id, p.name as product_name, ca.name as category_name,
         oi.quantity, p.price as unit_price,
         (oi.quantity * p.price) as line_total
